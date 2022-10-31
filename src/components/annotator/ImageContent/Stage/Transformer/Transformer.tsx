@@ -94,260 +94,13 @@ export const Transformer = ({
   );
 
   const boundingBoxFunc = (oldBox: box, newBox: box) => {
-    if (!boundBox) {
-      setStartBox(oldBox);
+    if (newBox.width < 5 || newBox.height < 5) {
+      return oldBox;
     }
-
-    const relativeNewBox = getRelativeBox(newBox);
-
-    if (!imageWidth || !imageHeight || !relativeNewBox)
-      return boundBox ? boundBox : startBox;
-
-    const minimumBoxArea = 5;
-
-    if (
-      relativeNewBox.width < minimumBoxArea ||
-      relativeNewBox.height < minimumBoxArea
-    )
-      return boundBox ? boundBox : oldBox;
-
-    if (
-      Math.floor(relativeNewBox.x + relativeNewBox.width) > imageWidth ||
-      Math.floor(relativeNewBox.y + relativeNewBox.height) > imageHeight ||
-      relativeNewBox.x < 0 ||
-      relativeNewBox.y < 0
-    ) {
-      return boundBox ? boundBox : oldBox;
-    }
-
-    setBoundBox(newBox);
     return newBox;
   };
 
-  /*
-   * Obtain box coordinates in image space
-   */
-  const getRelativeBox = (boundBox: box) => {
-    const relativePosition = transformPosition({
-      x: boundBox.x,
-      y: boundBox.y,
-    });
-    if (!relativePosition) return;
-    return {
-      x: relativePosition.x / stageScale,
-      y: relativePosition.y / stageScale,
-      height: boundBox.height / stageScale,
-      width: boundBox.width / stageScale,
-      rotation: 0,
-    };
-  };
-
-  const getScaledCoordinate = (
-    contour: Array<number>,
-    center: { x: number; y: number },
-    scale: { x: number; y: number }
-  ) => {
-    return _.flatten(
-      _.map(_.chunk(contour, 2), (el: Array<number>) => {
-        return [
-          Math.round(center.x + scale.x * (el[0] - center.x)),
-          Math.round(center.y + scale.y * (el[1] - center.y)),
-        ];
-      })
-    );
-  };
-
-  const onTransformEnd = () => {
-    if (!selectedAnnotation) return;
-
-    if (!boundBox || !startBox) return;
-
-    if (!imageWidth || !imageHeight) return;
-
-    const relativeBoundBox = getRelativeBox(boundBox);
-    const relativeStartBox = getRelativeBox(startBox);
-
-    if (!relativeBoundBox || !relativeStartBox || !center) return;
-
-    // get necessary parameters for transformation
-    const scaleX = relativeBoundBox.width / relativeStartBox.width;
-    const scaleY = relativeBoundBox.height / relativeStartBox.height;
-
-    //extract roi and resize
-    const mask = selectedAnnotation.mask;
-    const boundingBox = selectedAnnotation.boundingBox;
-
-    const roiWidth = boundingBox[2] - boundingBox[0];
-    const roiHeight = boundingBox[3] - boundingBox[1];
-    const roiX = boundingBox[0];
-    const roiY = boundingBox[1];
-
-    const decodedData = new Uint8Array(decode(mask));
-
-    if (!roiWidth || !roiHeight) return;
-
-    const roi = new ImageJS.Image(roiWidth, roiHeight, decodedData, {
-      components: 1,
-      alpha: 0,
-    });
-
-    const resizedMaskROI = roi.resize({
-      height: Math.round(roiHeight * scaleY),
-      width: Math.round(roiWidth * scaleX),
-      preserveAspectRatio: false,
-    });
-
-    const scaledOffset = getScaledCoordinate([roiX, roiY], center, {
-      x: scaleX,
-      y: scaleY,
-    });
-
-    const resizedMask = encode(Uint8Array.from(resizedMaskROI.data));
-
-    const updatedAnnotation = {
-      ...selectedAnnotation,
-      boundingBox: [
-        scaledOffset[0],
-        scaledOffset[1],
-        scaledOffset[0] + resizedMaskROI.width,
-        scaledOffset[1] + resizedMaskROI.height,
-      ] as [number, number, number, number],
-      mask: resizedMask,
-    };
-
-    dispatch(
-      imageViewerSlice.actions.setSelectedAnnotations({
-        selectedAnnotations: [],
-        selectedAnnotation: undefined,
-      })
-    );
-
-    updateSelectedAnnotation(updatedAnnotation);
-
-    setCenter(undefined);
-    setBoundBox(null);
-  };
-
-  const updateSelectedAnnotation = (updatedAnnotation: AnnotationType) => {
-    dispatch(
-      setSelectedAnnotations({
-        selectedAnnotations: [updatedAnnotation],
-        selectedAnnotation: updatedAnnotation,
-      })
-    );
-  };
-
-  const getOppositeAnchorPosition = () => {
-    if (!transformerRef || !transformerRef.current) return { x: 0, y: 0 };
-    const activeAnchor = transformerRef.current.getActiveAnchor();
-    switch (activeAnchor) {
-      case "bottom-right": {
-        return transformerRef.current
-          .findOne(".".concat("top-left"))
-          .position();
-      }
-      case "bottom-center": {
-        return transformerRef.current
-          .findOne(".".concat("top-center"))
-          .position();
-      }
-      case "bottom-left": {
-        return transformerRef.current
-          .findOne(".".concat("top-right"))
-          .position();
-      }
-      case "middle-left": {
-        return transformerRef.current
-          .findOne(".".concat("middle-right"))
-          .position();
-      }
-      case "top-left": {
-        return transformerRef.current
-          .findOne(".".concat("bottom-right"))
-          .position();
-      }
-      case "top-center": {
-        return transformerRef.current
-          .findOne(".".concat("bottom-center"))
-          .position();
-      }
-      case "top-right": {
-        return transformerRef.current
-          .findOne(".".concat("bottom-left"))
-          .position();
-      }
-      case "middle-right": {
-        return transformerRef.current
-          .findOne(".".concat("middle-left"))
-          .position();
-      }
-      default: {
-        return { x: 0, y: 0 };
-      }
-    }
-  };
-
-  const onTransform = () => {
-    if (!center) {
-      //at the beginning of transform, find out the "center" coordinate used for the resizing (i.e., the coordinate that does not move during resize)
-      const oppositeAnchorPosition = getOppositeAnchorPosition();
-      const scaledOppositeAnchorPosition = {
-        x: oppositeAnchorPosition.x / stageScale,
-        y: oppositeAnchorPosition.y / stageScale,
-      };
-
-      const relativeStartBox = getRelativeBox(startBox);
-
-      if (!relativeStartBox) return;
-
-      setCenter({
-        x: scaledOppositeAnchorPosition.x + relativeStartBox.x,
-        y: scaledOppositeAnchorPosition.y + relativeStartBox.y,
-      });
-    }
-  };
-
-  const onTransformStart = () => {
-    const selected = selectedAnnotations.find((annotation: AnnotationType) => {
-      return annotation.id === annotationId;
-    });
-
-    if (!selected) return;
-
-    dispatch(
-      setSelectedAnnotations({
-        selectedAnnotations: [selected],
-        selectedAnnotation: selected,
-      })
-    );
-  };
-
-  const clearAnnotations = () => {
-    if (annotationTool) {
-      annotationTool.deselect();
-    } else {
-      dispatch(
-        imageViewerSlice.actions.setAnnotationState({
-          annotationState: AnnotationStateType.Blank,
-          annotationTool: annotationTool,
-          execSaga: true,
-        })
-      );
-    }
-
-    dispatch(
-      imageViewerSlice.actions.setSelectionMode({
-        selectionMode: AnnotationModeType.New,
-      })
-    );
-
-    dispatch(
-      setSelectedAnnotations({
-        selectedAnnotations: [],
-        selectedAnnotation: undefined,
-      })
-    );
-  };
+  const onTransformEnd = (e: any) => {};
 
   const onSaveAnnotationClick = (event: Konva.KonvaEventObject<Event>) => {
     const container = event.target.getStage()!.container();
@@ -375,6 +128,33 @@ export const Transformer = ({
 
     clearAnnotations();
     if (soundEnabled) playDeleteAnnotationSoundEffect();
+  };
+
+  const clearAnnotations = () => {
+    if (annotationTool) {
+      annotationTool.deselect();
+    } else {
+      dispatch(
+        imageViewerSlice.actions.setAnnotationState({
+          annotationState: AnnotationStateType.Blank,
+          annotationTool: annotationTool,
+          execSaga: true,
+        })
+      );
+    }
+
+    dispatch(
+      imageViewerSlice.actions.setSelectionMode({
+        selectionMode: AnnotationModeType.New,
+      })
+    );
+
+    dispatch(
+      setSelectedAnnotations({
+        selectedAnnotations: [],
+        selectedAnnotation: undefined,
+      })
+    );
   };
 
   const onMouseEnter = (event: Konva.KonvaEventObject<MouseEvent>) => {
@@ -408,9 +188,7 @@ export const Transformer = ({
       <ReactKonva.Group>
         <ReactKonva.Transformer
           boundBoxFunc={boundingBoxFunc}
-          onTransform={onTransform}
           onTransformEnd={onTransformEnd}
-          onTransformStart={onTransformStart}
           id={"tr-".concat(annotationId)}
           ref={transformerRef}
           rotateEnabled={false}

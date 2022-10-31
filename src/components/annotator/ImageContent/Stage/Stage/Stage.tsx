@@ -575,11 +575,12 @@ export const Stage = () => {
               <PointerSelection />
 
               <Annotations />
-
-              <Transformers
-                transformPosition={getRelativePointerPosition}
-                annotationTool={annotationTool}
-              />
+              {selectedAnnotation === undefined && (
+                <Transformers
+                  transformPosition={getRelativePointerPosition}
+                  annotationTool={annotationTool}
+                />
+              )}
             </Layer>
           </DndProvider>
         </Provider>
